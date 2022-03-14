@@ -1,6 +1,7 @@
 name: ift6289-project-env
 channels:
   - conda-forge
+  - pytorch
 dependencies:
   - python>=3.7
   - numpy
@@ -10,9 +11,9 @@ dependencies:
   - nltk
   - scikit-image
   - easydict
-  - torch
-  - torchfile
-  - torchvision
   - python-dateutil
   - tqdm
   - h5py
+  - pytorch
+  - torchfile
+  - torchvision
