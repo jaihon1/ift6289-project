@@ -133,7 +133,7 @@ class TextDataset(data.Dataset):
         #
         filename_bbox = {img_file[:-4]: [] for img_file in filenames}
         numImgs = len(filenames)
-        for i in xrange(0, numImgs):
+        for i in range(0, numImgs):
             # bbox = [x-left, y-top, width, height]
             bbox = df_bounding_boxes.iloc[i][1:].tolist()
 
@@ -146,8 +146,8 @@ class TextDataset(data.Dataset):
         all_captions = []
         for i in range(len(filenames)):
             cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
-            with open(cap_path, "r") as f:
-                captions = f.read().decode('utf8').split('\n')
+            with open(cap_path, "r", encoding='utf-8') as f:
+                captions = f.read().split('\n')
                 cnt = 0
                 for cap in captions:
                     if len(cap) == 0:
