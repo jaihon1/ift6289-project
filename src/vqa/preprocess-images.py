@@ -9,13 +9,13 @@ from tqdm import tqdm
 import config
 import data
 import utils
-from resnet import resnet as caffe_resnet
+# from resnet import resnet as caffe_resnet # No need for this, we get resnet from torchvision
 
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.model = caffe_resnet.resnet152(pretrained=True)
+        self.model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet152', pretrained=True)
 
         def save_output(module, input, output):
             self.buffer = output
@@ -43,7 +43,8 @@ def create_coco_loader(*paths):
 def main():
     cudnn.benchmark = True
 
-    net = Net().cuda()
+    # net = Net().cuda() # Needed for gpu
+    net = Net()
     net.eval()
 
     loader = create_coco_loader(config.train_path, config.val_path)
@@ -60,7 +61,7 @@ def main():
 
         i = j = 0
         for ids, imgs in tqdm(loader):
-            imgs = Variable(imgs.cuda(async=True), volatile=True)
+            # imgs = Variable(imgs.cuda(non_blocking=True), volatile=True) # Needed for gpu
             out = net(imgs)
 
             j = i + imgs.size(0)
