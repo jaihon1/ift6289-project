@@ -109,7 +109,7 @@ def get_imgs(img_path, imsize, bbox=None,
 
 
 class TextDataset(data.Dataset):
-    def __init__(self, data_dir, questions_path, answers_path, image_features_path, answerable_only=False,
+    def __init__(self, data_dir,
                  split='train',
                  base_size=64,
                  transform=None, target_transform=None):
@@ -250,7 +250,7 @@ class TextDataset(data.Dataset):
     def build_dictionary(self, train_captions, test_captions, train_qa, test_qa):
         word_counts = defaultdict(float)
         # captions = train_captions + test_captions + sum(train_qa.values(), []) + sum(test_qa.values(), [])
-        captions = sum(train_captions.values(), []) + sum(test_captions.values, [])
+        captions = sum(train_captions.values(), []) + sum(test_captions.values(), [])
         for sent in captions:
             for word in sent:
                 word_counts[word] += 1

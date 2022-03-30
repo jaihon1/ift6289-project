@@ -6,9 +6,9 @@ import torch.utils.data
 import torchvision.models as models
 from tqdm import tqdm
 
-import config
-import data
-import utils
+import vqa.config
+import vqa.data
+import vqa.utils
 # from resnet import resnet as caffe_resnet # No need for this, we get resnet from torchvision
 
 
