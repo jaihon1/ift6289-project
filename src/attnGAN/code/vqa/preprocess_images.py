@@ -6,15 +6,15 @@ import torch.utils.data
 import torchvision.models as models
 from tqdm import tqdm
 
-import vqa.config
-import vqa.data
-import vqa.utils
+import vqa.config as config
+import vqa.data as data
+import vqa.utils as utils
 # from resnet import resnet as caffe_resnet # No need for this, we get resnet from torchvision
 
 
 class Net_VQA_process(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
+        super(Net_VQA_process, self).__init__()
         self.model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet152', pretrained=True)
 
         def save_output(module, input, output):

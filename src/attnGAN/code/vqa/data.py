@@ -9,8 +9,8 @@ import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 
-import vqa.config
-import vqa.utils
+import vqa.config as config
+import vqa.utils as utils
 
 
 def get_loader(train=False, val=False, test=False):
@@ -63,8 +63,8 @@ class VQA(data.Dataset):
         self.answers = [self._encode_answers(a) for a in self.answers]
 
         # v
-        self.image_features_path = image_features_path
-        self.coco_id_to_index = self._create_coco_id_to_index()
+        # self.image_features_path = image_features_path
+        # self.coco_id_to_index = self._create_coco_id_to_index()
         self.coco_ids = [q['image_id'] for q in questions_json['questions']]
         self.img_id_to_index_for_qa = {v: k for k, v in enumerate(self.coco_ids)}
 
@@ -147,8 +147,9 @@ class VQA(data.Dataset):
 
         q, q_length = self.questions[item]
         a = self.answers[item]
-        image_id = self.coco_ids[item]
-        v = self._load_image(image_id)
+        # image_id = self.coco_ids[item]
+        # v = self._load_image(image_id)
+        v = self.coco_ids[item]
         # since batches are re-ordered for PackedSequence's, the original question order is lost
         # we return `item` so that the order of (v, q, a) triples can be restored if desired
         # without shuffling in the dataloader, these will be in the order that they appear in the q and a json's.

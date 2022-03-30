@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 
-import vqa.config
+import vqa.config as config
 
 
 def batch_accuracy(predicted, true):

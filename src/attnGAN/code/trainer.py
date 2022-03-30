@@ -227,7 +227,7 @@ class condGANTrainer(object):
         processed_image_net = Net_VQA_process()
         processed_image_net.eval()
 
-        log = torch.load(os.path.join(self.data_dir, '2017-08-04_00:55:19.pth'))
+        log = torch.load(os.path.join(self.data_dir, '2017-08-04_00.55.19.pth'))
         tokens = len(log['vocab']['question']) + 1
 
         VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
