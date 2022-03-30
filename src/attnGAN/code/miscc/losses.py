@@ -162,6 +162,30 @@ def discriminator_loss(netD, real_imgs, fake_imgs, conditions,
     return errD
 
 
+def discriminator_loss_qas(netD, real_imgs, fake_imgs, conditions,
+                           fake_labels):
+    # Forward
+    real_features = netD(real_imgs)
+    fake_features = netD(fake_imgs.detach())
+    # loss
+    cond_fake_logits = netD.COND_DNET(fake_features, conditions)
+    cond_fake_errD = nn.BCELoss()(cond_fake_logits, fake_labels)
+    #
+    batch_size = real_features.size(0)
+    cond_wrong_logits = netD.COND_DNET(real_features[:(batch_size - 1)], conditions[1:batch_size])
+    cond_wrong_errD = nn.BCELoss()(cond_wrong_logits, fake_labels[1:batch_size])
+
+    if netD.UNCOND_DNET is not None:
+
+        fake_logits = netD.UNCOND_DNET(fake_features)
+
+        fake_errD = nn.BCELoss()(fake_logits, fake_labels)
+        errD = (fake_errD + cond_fake_errD + cond_wrong_errD) / 3.
+    else:
+        errD = (cond_fake_errD + cond_wrong_errD) / 2.
+    return errD
+
+
 def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                    words_embs, sent_emb, match_labels,
                    cap_lens, class_ids):
