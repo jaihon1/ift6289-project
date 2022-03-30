@@ -213,8 +213,8 @@ class TextDataset(data.Dataset):
         return all_captions
 
     def load_qa(self, data_dir, filenames, split):
-        ann_file = os.path.join(data_dir,'v2_mscoco_%s2014_annotations.json' % split)
-        ques_file = os.path.join(data_dir,'v2_OpenEnded_mscoco_%s2014_questions.json' % split)
+        ann_file = os.path.join(data_dir,'mscoco_%s2014_annotations.json' % split)
+        ques_file = os.path.join(data_dir,'OpenEnded_mscoco_%s2014_questions.json' % split)
         if os.path.isfile(ann_file) and os.path.isfile(ques_file):
             vqa = VQA(ann_file, ques_file)
 
