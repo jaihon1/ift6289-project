@@ -12,7 +12,7 @@ import utils
 # from resnet import resnet as caffe_resnet # No need for this, we get resnet from torchvision
 
 
-class Net(nn.Module):
+class Net_VQA_process(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet152', pretrained=True)
@@ -44,7 +44,7 @@ def main():
     cudnn.benchmark = True
 
     # net = Net().cuda() # Needed for gpu
-    net = Net()
+    net = Net_VQA_process()
     net.eval()
 
     loader = create_coco_loader(config.train_path, config.val_path)
@@ -70,5 +70,5 @@ def main():
             i = j
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

@@ -24,15 +24,18 @@ import time
 import numpy as np
 import sys
 
+from vqa.preprocess_images import Net_VQA_process
+import vqa.model as vqa_model
+
 # ################# Text to image task############################ #
 class condGANTrainer(object):
-    def __init__(self, output_dir, data_loader, n_words, ixtoword):
+    def __init__(self, data_dir, output_dir, data_loader, n_words, ixtoword):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
-
+        self.data_dir = data_dir
         torch.cuda.set_device(cfg.GPU_ID)
         cudnn.benchmark = True
 
@@ -221,6 +224,17 @@ class condGANTrainer(object):
         optimizerG, optimizersD = self.define_optimizers(netG, netsD)
         real_labels, fake_labels, match_labels = self.prepare_labels()
 
+        processed_image_net = Net_VQA_process()
+        processed_image_net.eval()
+
+        log = torch.load(os.path.join(self.data_dir, '2017-08-04_00:55:19.pth'))
+        tokens = len(log['vocab']['question']) + 1
+
+        VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
+        VQA_net.load_state_dict(log['weights'])
+
+        log_softmax = nn.LogSoftmax().to('cuda:0')
+
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
         noise = Variable(torch.FloatTensor(batch_size, nz))
@@ -243,7 +257,7 @@ class condGANTrainer(object):
                 # (1) Prepare training data and Compute text embeddings
                 ######################################################
                 data = data_iter.next()
-                imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
+                imgs, captions, cap_lens, class_ids, keys, qas_gan, qas_len, q_vqa, ans_vqa, item, q_len_vqa  = prepare_data(data)
 
                 hidden = text_encoder.init_hidden(batch_size)
                 # words_embs: batch_size x nef x seq_len
@@ -283,6 +297,16 @@ class condGANTrainer(object):
                 step += 1
                 gen_iterations += 1
 
+                fake_imgs_processed = []
+                loss_vqa = torch.zeros(1).type(torch.FloatTensor)
+                for i in range(len(netsD)):
+                    # prepare fake images for VQA model
+                    fake_imgs_processed.append(processed_image_net(fake_imgs[i]).type(torch.FloatTensor))
+                    out = VQA_net(fake_imgs_processed[i], q_vqa, q_len_vqa)
+
+                    nll = -log_softmax(out)
+                    loss_vqa += (nll * ans_vqa / 10).sum(dim=1).mean()
+
                 # do not need to compute gradient for Ds
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
@@ -291,6 +315,7 @@ class condGANTrainer(object):
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
+                errG_total += loss_vqa
                 G_logs += 'kl_loss: %.2f ' % kl_loss.data.item()
                 # backward and update parameters
                 errG_total.backward()

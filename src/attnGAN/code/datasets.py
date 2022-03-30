@@ -20,6 +20,11 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import numpy.random as random
+
+import vqa.utils as vqa_utils
+import vqa.config as vqa_config
+from vqa.data import VQA as VQA_Dataset
+
 if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
@@ -27,7 +32,7 @@ else:
 
 
 def prepare_data(data):
-    imgs, captions, captions_lens, class_ids, keys = data
+    imgs, captions, captions_lens, class_ids, keys, qas_gan, qas_len_gan, q_vqa, ans_vqa, item, q_len_vqa = data
 
     # sort data by the length in a decreasing order
     sorted_cap_lens, sorted_cap_indices = \
@@ -43,18 +48,32 @@ def prepare_data(data):
 
     captions = captions[sorted_cap_indices].squeeze()
     class_ids = class_ids[sorted_cap_indices].numpy()
+    qas_gan = qas_gan[sorted_cap_indices]
+    qas_len_gan = qas_len_gan[sorted_cap_indices]
+    q_vqa = q_vqa[sorted_cap_indices]
+    ans_vqa = ans_vqa[sorted_cap_indices]
+    q_len_vqa = q_len_vqa[sorted_cap_indices]
     # sent_indices = sent_indices[sorted_cap_indices]
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
     # print('keys', type(keys), keys[-1])  # list
     if cfg.CUDA:
         captions = Variable(captions).to('cuda:0')
         sorted_cap_lens = Variable(sorted_cap_lens).to('cuda:0')
+        qas_gan = Variable(qas_gan).to('cuda:0')
+        qas_len_gan = Variable(qas_len_gan).to('cuda:0')
+        q_vqa = Variable(q_vqa).to('cuda:0')
+        ans_vqa = Variable(ans_vqa).to('cuda:0')
+        q_len_vqa = Variable(q_len_vqa).to('cuda:0')
     else:
         captions = Variable(captions)
         sorted_cap_lens = Variable(sorted_cap_lens)
-
+        qas_gan = Variable(qas_gan)
+        qas_len_gan = Variable(qas_len_gan)
+        q_vqa = Variable(q_vqa)
+        ans_vqa = Variable(ans_vqa)
+        q_len_vqa = Variable(q_len_vqa)
     return [real_imgs, captions, sorted_cap_lens,
-            class_ids, keys]
+            class_ids, keys, qas_gan, qas_len_gan, q_vqa, ans_vqa, item, q_len_vqa]
 
 
 def get_imgs(img_path, imsize, bbox=None,
@@ -90,7 +109,8 @@ def get_imgs(img_path, imsize, bbox=None,
 
 
 class TextDataset(data.Dataset):
-    def __init__(self, data_dir, split='train',
+    def __init__(self, data_dir, questions_path, answers_path, image_features_path, answerable_only=False,
+                 split='train',
                  base_size=64,
                  transform=None, target_transform=None):
         self.transform = transform
@@ -119,6 +139,19 @@ class TextDataset(data.Dataset):
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
         self.number_example = len(self.filenames)
 
+        if split=='train':
+            train = True
+            val = False
+        elif split=='val':
+            train = False
+            val = True
+        self.VQA_data = VQA_Dataset(
+            vqa_utils.path_for(train=train, val=val, question=True),
+            vqa_utils.path_for(train=train, val=val, answer=True),
+            vqa_config.preprocessed_path,
+            answerable_only=train,
+        )
+
     def load_bbox(self):
         data_dir = self.data_dir
         bbox_path = os.path.join(data_dir, 'CUB_200_2011/bounding_boxes.txt')
@@ -144,9 +177,11 @@ class TextDataset(data.Dataset):
         return filename_bbox
 
     def load_captions(self, data_dir, filenames):
-        all_captions = []
+        all_captions = dict()
         for i in range(len(filenames)):
             cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
+            img_id = int(filenames[i].split('_')[-1])
+            all_captions[img_id] = []
             with open(cap_path, "r", encoding='utf-8') as f:
                 captions = f.read().split('\n')
                 cnt = 0
@@ -168,7 +203,7 @@ class TextDataset(data.Dataset):
                         t = t.encode('ascii', 'ignore').decode('ascii')
                         if len(t) > 0:
                             tokens_new.append(t)
-                    all_captions.append(tokens_new)
+                    all_captions[img_id].append(tokens_new)
                     cnt += 1
                     if cnt == self.embeddings_num:
                         break
@@ -214,16 +249,17 @@ class TextDataset(data.Dataset):
 
     def build_dictionary(self, train_captions, test_captions, train_qa, test_qa):
         word_counts = defaultdict(float)
-        captions = train_captions + test_captions + sum(train_qa.values(), []) + sum(test_qa.values(), [])
+        # captions = train_captions + test_captions + sum(train_qa.values(), []) + sum(test_qa.values(), [])
+        captions = sum(train_captions.values(), []) + sum(test_captions.values, [])
         for sent in captions:
             for word in sent:
                 word_counts[word] += 1
 
         vocab = [w for w in word_counts if word_counts[w] >= 0]
 
-        ixtoword = {}
+        ixtoword = dict()
         ixtoword[0] = '<end>'
-        wordtoix = {}
+        wordtoix = dict()
         wordtoix['<end>'] = 0
         ix = 1
         for w in vocab:
@@ -231,23 +267,25 @@ class TextDataset(data.Dataset):
             ixtoword[ix] = w
             ix += 1
 
-        train_captions_new = []
-        for t in train_captions:
-            rev = []
-            for w in t:
-                if w in wordtoix:
-                    rev.append(wordtoix[w])
-            # rev.append(0)  # do not need '<end>' token
-            train_captions_new.append(rev)
+        train_captions_new = {id: [] for id in train_captions.keys()}
+        for k,v in train_captions.items():
+            for t in v:
+                rev = []
+                for w in t:
+                    if w in wordtoix:
+                        rev.append(wordtoix[w])
+                # rev.append(0)  # do not need '<end>' token
+                train_captions_new[k].append(rev)
 
-        test_captions_new = []
-        for t in test_captions:
-            rev = []
-            for w in t:
-                if w in wordtoix:
-                    rev.append(wordtoix[w])
-            # rev.append(0)  # do not need '<end>' token
-            test_captions_new.append(rev)
+        test_captions_new = {id: [] for id in test_captions.keys()}
+        for k,v in test_captions.items():
+            for t in v:
+                rev = []
+                for w in t:
+                    if w in wordtoix:
+                        rev.append(wordtoix[w])
+                # rev.append(0)  # do not need '<end>' token
+                test_captions_new[k].append(rev)
 
         train_qa_new = {id: [] for id in train_qa.keys()}
         for k,v in train_qa.items():
@@ -285,6 +323,7 @@ class TextDataset(data.Dataset):
             with open(filepath, 'wb') as f:
                 pickle.dump([train_captions, test_captions, train_qa, test_qa,
                              ixtoword, wordtoix], f, protocol=2)
+                print('number of words', n_words)
                 print('Save to: ', filepath)
         else:
             with open(filepath, 'rb') as f:
@@ -325,9 +364,10 @@ class TextDataset(data.Dataset):
             filenames = []
         return filenames
 
-    def get_caption(self, sent_ix):
+    # def get_caption(self, sent_ix):
+    def get_caption(self, img_id, sent_ix):
         # a list of indices for a sentence
-        sent_caption = np.asarray(self.captions[sent_ix]).astype('int64')
+        sent_caption = np.asarray(self.captions[img_id][sent_ix]).astype('int64')
         if (sent_caption == 0).sum() > 0:
             print('ERROR: do not need END (0) token', sent_caption)
         num_words = len(sent_caption)
@@ -380,18 +420,22 @@ class TextDataset(data.Dataset):
         img_name = '%s/images/%s.jpg' % (data_dir, key)
         imgs = get_imgs(img_name, self.imsize,
                         bbox, self.transform, normalize=self.norm)
+        img_id = int(key.split('_')[-1])
+
         # random select a sentence
         sent_ix = random.randint(0, self.embeddings_num)
-        new_sent_ix = index * self.embeddings_num + sent_ix
-        caps, cap_len = self.get_caption(new_sent_ix)
+        # new_sent_ix = index * self.embeddings_num + sent_ix
+        caps, cap_len = self.get_caption(img_id, sent_ix)
 
         # random select of question-answer pair
-        img_id = int(key.split('_')[-1])
         sent_ix = random.randint(0, len(self.qas[img_id]))
         qa, qa_len = self.get_qa(img_id, sent_ix)
 
-        # TODO: Add qa and qa_len to return of get_item
-        return imgs, caps, cap_len, cls_id, key
+        #  get question and answer for VQA model
+        item = self.VQA_data.img_id_to_index_for_qa[img_id]
+        v, q, a, item, q_length = self.VQA_data[item]
+
+        return imgs, caps, cap_len, cls_id, key, qa, qa_len, q, a, item, q_length
 
 
     def __len__(self):
