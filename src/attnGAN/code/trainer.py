@@ -241,6 +241,8 @@ class condGANTrainer(object):
         fixed_noise = Variable(torch.FloatTensor(batch_size, nz).normal_(0, 1))
         if cfg.CUDA:
             noise, fixed_noise = noise.to('cuda:0'), fixed_noise.to('cuda:0')
+            processed_image_net.to('cuda:0')
+            VQA_net.to('cuda:0')
 
         gen_iterations = 0
         # gen_iterations = start_epoch * self.num_batches
@@ -299,6 +301,7 @@ class condGANTrainer(object):
 
                 fake_imgs_processed = []
                 loss_vqa = torch.zeros(1).type(torch.FloatTensor)
+                VQA_net.zero_grad()
                 for i in range(len(netsD)):
                     # prepare fake images for VQA model
                     fake_imgs_processed.append(processed_image_net(fake_imgs[i]).type(torch.FloatTensor))
