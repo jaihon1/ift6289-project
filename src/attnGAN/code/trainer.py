@@ -26,6 +26,7 @@ import sys
 
 from vqa.preprocess_images import Net_VQA_process
 import vqa.model as vqa_model
+import vqa.utils as vqa_utils
 
 # ################# Text to image task############################ #
 class condGANTrainer(object):
@@ -322,7 +323,7 @@ class condGANTrainer(object):
                 gen_iterations += 1
 
                 fake_imgs_processed = []
-                loss_vqa = torch.zeros(1).type(torch.FloatTensor)
+                loss_vqa = 0
                 VQA_net.zero_grad()
                 for i in range(len(netsD)):
                     # prepare fake images for VQA model
@@ -335,7 +336,7 @@ class condGANTrainer(object):
 
                     nll = -log_softmax(out)
                     loss_vqa += (nll * ans_vqa / 10).sum(dim=1).mean()
-
+                    acc = vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach())
                 # do not need to compute gradient for Ds
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
@@ -344,7 +345,7 @@ class condGANTrainer(object):
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 loss_logs = generator_loss(netsD, image_encoder, fake_imgs_qas, real_labels_qas,
                                            words_embs_qas, sent_emb_qas, match_labels_qas, sort_qas_lens,
-                                           class_ids[sorted_qas_indices])
+                                           class_ids[sorted_qas_indices.cpu().numpy()])
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
                 kl_loss_qas = KL_loss(mu_qas, logvar_qas)
@@ -354,7 +355,7 @@ class condGANTrainer(object):
                 G_logs += loss_logs[1]
                 G_logs += 'kl_loss: %.2f ' % kl_loss.data.item()
                 G_logs += 'kl_loss_qas: %.2f ' % kl_loss_qas.data.item()
-
+                G_logs += 'Accuracy VQA: %.2f' % acc.mean().item()
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
