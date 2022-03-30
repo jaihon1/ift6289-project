@@ -9,8 +9,8 @@ import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 
-import vqa.config
-import vqa.utils
+import vqa.config as config
+import vqa.utils as utils
 
 
 def get_loader(train=False, val=False, test=False):
