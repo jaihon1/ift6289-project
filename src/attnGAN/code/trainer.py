@@ -325,6 +325,7 @@ class condGANTrainer(object):
                 fake_imgs_processed = []
                 loss_vqa = 0
                 VQA_net.zero_grad()
+                acc = []
                 for i in range(len(netsD)):
                     # prepare fake images for VQA model
                     fake_imgs_processed.append(processed_image_net(fake_imgs_qas[i]).type(torch.FloatTensor))
@@ -336,7 +337,7 @@ class condGANTrainer(object):
 
                     nll = -log_softmax(out)
                     loss_vqa += (nll * ans_vqa / 10).sum(dim=1).mean()
-                    acc = vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach())
+                    acc.append(vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach()).mean().item())
                 # do not need to compute gradient for Ds
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
@@ -355,7 +356,7 @@ class condGANTrainer(object):
                 G_logs += loss_logs[1]
                 G_logs += 'kl_loss: %.2f ' % kl_loss.data.item()
                 G_logs += 'kl_loss_qas: %.2f ' % kl_loss_qas.data.item()
-                G_logs += 'Accuracy VQA: %.2f' % acc.mean().item()
+                G_logs += 'Accuracy VQA: %.2f' % sum(acc)/3
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
