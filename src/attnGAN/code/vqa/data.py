@@ -66,7 +66,9 @@ class VQA(data.Dataset):
         # self.image_features_path = image_features_path
         # self.coco_id_to_index = self._create_coco_id_to_index()
         self.coco_ids = [q['image_id'] for q in questions_json['questions']]
-        self.img_id_to_index_for_qa = {v: k for k, v in enumerate(self.coco_ids)}
+        self.img_id_to_index_for_qa = {ids: dict() for ids in self.coco_ids}
+        for index, q in enumerate(questions_json['questions']):
+            self.img_id_to_index_for_qa[q['image_id']][q['question_id']] = index
 
         # only use questions that have at least one answer?
         self.answerable_only = answerable_only
