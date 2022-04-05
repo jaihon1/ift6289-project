@@ -133,7 +133,7 @@ class TextDataset(data.Dataset):
             self.bbox = None
         split_dir = os.path.join(data_dir, split)
 
-        self.filenames, self.captions, self.qas, self.ixtoword, \
+        self.filenames, self.captions, self.qas, self.q_ids, self.ixtoword, \
             self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
 
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
@@ -212,7 +212,7 @@ class TextDataset(data.Dataset):
                           % (filenames[i], cnt))
         return all_captions
 
-    def load_qa(self, data_dir, filenames, split):
+    def load_qa(self, data_dir, filenames, split, answerable):
         ann_file = os.path.join(data_dir,'mscoco_%s2014_annotations.json' % split)
         ques_file = os.path.join(data_dir,'OpenEnded_mscoco_%s2014_questions.json' % split)
         if os.path.isfile(ann_file) and os.path.isfile(ques_file):
@@ -220,12 +220,18 @@ class TextDataset(data.Dataset):
 
         image_ids = [int(name.split('_')[-1]) for name in filenames]
         all_qa = {id: [] for id in image_ids}
+        q_ids = {id: [] for id in image_ids}
 
         for id in image_ids:
             question_ids = vqa.getQuesIds(imgIds=[id])
             for q_id in question_ids:
                 qa = vqa.loadQ(q_id)[0]['question']
-                qa += ' ' + vqa.loadQA(q_id)[0]['multiple_choice_answer']
+                # qa += ' ' + vqa.loadQA(q_id)[0]['multiple_choice_answer']
+                answer = vqa.loadQA(q_id)[0]
+                if answerable:
+                    if len(answer['answers']) > 0:
+                        continue
+                qa += ' ' + answer['multiple_choice_answer']
 
                 if len(qa) == 0:
                     continue
@@ -245,7 +251,8 @@ class TextDataset(data.Dataset):
                     if len(tok) > 0:
                         tokens_new.append(tok)
                 all_qa[id].append(tokens_new)
-        return all_qa
+                q_ids[id].append(q_id)
+        return all_qa, q_ids
 
     def build_dictionary(self, train_captions, test_captions, train_qa, test_qa):
         word_counts = defaultdict(float)
@@ -315,13 +322,13 @@ class TextDataset(data.Dataset):
         if not os.path.isfile(filepath):
             train_captions = self.load_captions(data_dir, train_names)
             test_captions = self.load_captions(data_dir, test_names)
-            train_qa = self.load_qa(data_dir, train_names, 'train')
-            test_qa = self.load_qa(data_dir, test_names, 'val')
+            train_qa, train_q_ids = self.load_qa(data_dir, train_names, 'train', True)
+            test_qa, test_q_ids = self.load_qa(data_dir, test_names, 'val', False)
 
             train_captions, test_captions, train_qa, test_qa, ixtoword, wordtoix, n_words = \
                 self.build_dictionary(train_captions, test_captions, train_qa, test_qa)
             with open(filepath, 'wb') as f:
-                pickle.dump([train_captions, test_captions, train_qa, test_qa,
+                pickle.dump([train_captions, test_captions, train_qa, test_qa, train_q_ids, test_q_ids,
                              ixtoword, wordtoix], f, protocol=2)
                 print('number of words', n_words)
                 print('Save to: ', filepath)
@@ -330,7 +337,8 @@ class TextDataset(data.Dataset):
                 x = pickle.load(f)
                 train_captions, test_captions = x[0], x[1]
                 train_qa, test_qa = x[2], x[3]
-                ixtoword, wordtoix = x[4], x[5]
+                train_q_ids, test_q_ids = x[4], x[5]
+                ixtoword, wordtoix = x[6], x[7]
                 del x
                 n_words = len(ixtoword)
                 print('Load from: ', filepath)
@@ -340,11 +348,15 @@ class TextDataset(data.Dataset):
             captions = train_captions
             qas = train_qa
             filenames = train_names
+            q_ids = train_q_ids
+            self.answerable_only = True
         else:  # split=='test'
             captions = test_captions
             qas = test_qa
             filenames = test_names
-        return filenames, captions, qas, ixtoword, wordtoix, n_words
+            q_ids = test_q_ids
+            self.answerable_only = False
+        return filenames, captions, qas, q_ids, ixtoword, wordtoix, n_words
 
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
@@ -430,9 +442,10 @@ class TextDataset(data.Dataset):
         # random select of question-answer pair
         sent_ix = random.randint(0, len(self.qas[img_id]))
         qa, qa_len = self.get_qa(img_id, sent_ix)
+        q_id = self.q_ids[img_id][sent_ix]
 
         #  get question and answer for VQA model
-        item = self.VQA_data.img_id_to_index_for_qa[img_id]
+        item = self.VQA_data.img_id_to_index_for_qa[img_id][q_id]
         v, q, a, item, q_length = self.VQA_data[item]
 
         return imgs, caps, cap_len, cls_id, key, qa, qa_len, q, a, item, q_length
