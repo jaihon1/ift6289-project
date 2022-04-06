@@ -23,6 +23,7 @@ import os
 import time
 import numpy as np
 import sys
+from tqdm import tqdm
 
 from vqa.preprocess_images import Net_VQA_process
 import vqa.model as vqa_model
@@ -253,7 +254,7 @@ class condGANTrainer(object):
 
             data_iter = iter(self.data_loader)
             step = 0
-            while step < self.num_batches:
+            for step in tqdm(range(len(self.num_batches))):
                 # reset requires_grad to be trainable for all Ds
                 # self.set_requires_grad_value(netsD, True)
 
@@ -319,7 +320,7 @@ class condGANTrainer(object):
                 # (4) Update G network: maximize log(D(G(z)))
                 ######################################################
                 # compute total loss for training G
-                step += 1
+                # step += 1
                 gen_iterations += 1
 
                 fake_imgs_processed = []
