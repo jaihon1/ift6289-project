@@ -356,7 +356,7 @@ class condGANTrainer(object):
                 G_logs += loss_logs[1]
                 G_logs += 'kl_loss: %.2f ' % kl_loss.data.item()
                 G_logs += 'kl_loss_qas: %.2f ' % kl_loss_qas.data.item()
-                G_logs += 'Accuracy VQA: %.2f' % sum(acc)/3
+                G_logs += 'Accuracy VQA: %.2f' % float(sum(acc)/3)
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()

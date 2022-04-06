@@ -133,7 +133,7 @@ class TextDataset(data.Dataset):
             self.bbox = None
         split_dir = os.path.join(data_dir, split)
 
-        self.filenames, self.captions, self.qas, self.q_ids, self.ixtoword, \
+        self.filenames, self.captions, self.qas, self.ixtoword, \
             self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
 
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
@@ -149,7 +149,7 @@ class TextDataset(data.Dataset):
             vqa_utils.path_for(train=train, val=val, question=True),
             vqa_utils.path_for(train=train, val=val, answer=True),
             vqa_config.preprocessed_path,
-            answerable_only=train,
+            answerable_only=False,
         )
         self.mask_answerable, self.q_ids = self.build_mask_answerable(data_dir, split)
 
@@ -409,9 +409,9 @@ class TextDataset(data.Dataset):
             x_len = cfg.TEXT.WORDS_NUM
         return x, x_len
 
-    def get_qa(self, img_id, sent_ix):
+    def get_qa(self, img_id, sent_ix, mask):
         # a list of indices for a sentence
-        sent_caption = np.asarray(np.asarray(self.qas[img_id])[self.mask_answerable][sent_ix]).astype('int64')
+        sent_caption = np.asarray(np.asarray(self.qas[img_id], dtype=object)[mask][sent_ix]).astype('int64')
         if (sent_caption == 0).sum() > 0:
             print('ERROR: do not need END (0) token', sent_caption)
         num_words = len(sent_caption)
@@ -452,9 +452,10 @@ class TextDataset(data.Dataset):
         caps, cap_len = self.get_caption(img_id, sent_ix)
 
         # random select of question-answer pair
-        sent_ix = random.randint(0, sum(self.mask_answerable[img_id]))
-        qa, qa_len = self.get_qa(img_id, sent_ix)
-        q_id = np.asarray(self.q_ids[img_id])[self.mask_answerable][sent_ix]
+        mask = self.mask_answerable[img_id]
+        sent_ix = random.randint(0, sum(mask))
+        qa, qa_len = self.get_qa(img_id, sent_ix, mask)
+        q_id = np.asarray(self.q_ids[img_id])[mask][sent_ix]
 
         #  get question and answer for VQA model
         item = self.VQA_data.img_id_to_index_for_qa[img_id][q_id]
