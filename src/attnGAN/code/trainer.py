@@ -329,6 +329,7 @@ class condGANTrainer(object):
                 ######################################################
                 errD_total = 0
                 D_logs = ''
+                lossD=[]
                 for i in range(len(netsD)):
                     netsD[i].zero_grad()
                     errD = discriminator_loss(netsD[i], imgs[i], fake_imgs[i],
