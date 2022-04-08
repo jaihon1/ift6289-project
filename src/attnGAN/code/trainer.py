@@ -108,10 +108,14 @@ class condGANTrainer(object):
         print('# of netsD', len(netsD))
         #
         epoch = 0
+        checkpoint_g = None
+        checkpoint_d = None
         if cfg.TRAIN.NET_G != '':
-            state_dict = \
+            checkpoint_g = \
                 torch.load(cfg.TRAIN.NET_G, map_location=lambda storage, loc: storage)
-            netG.load_state_dict(state_dict)
+            netG.load_state_dict(checkpoint_g['model_state_dict'])
+            if cfg.TRAIN.FLAG:
+                netG.train()
             print('Load G from: ', cfg.TRAIN.NET_G)
             istart = cfg.TRAIN.NET_G.rfind('_') + 1
             iend = cfg.TRAIN.NET_G.rfind('.')
@@ -119,12 +123,12 @@ class condGANTrainer(object):
             epoch = int(epoch) + 1
             if cfg.TRAIN.B_NET_D:
                 Gname = cfg.TRAIN.NET_G
+                checkpoint_d = []
                 for i in range(len(netsD)):
                     s_tmp = Gname[:Gname.rfind('/')]
                     Dname = '%s/netD%d.pth' % (s_tmp, i)
                     print('Load D from: ', Dname)
-                    state_dict = \
-                        torch.load(Dname, map_location=lambda storage, loc: storage)
+                    checkpoint_d.append(torch.load(Dname, map_location=lambda storage, loc: storage))
                     netsD[i].load_state_dict(state_dict)
         # ########################################################### #
         if cfg.CUDA:
@@ -133,20 +137,26 @@ class condGANTrainer(object):
             netG.to('cuda:0')
             for i in range(len(netsD)):
                 netsD[i].to('cuda:0')
-        return [text_encoder, image_encoder, netG, netsD, epoch]
 
-    def define_optimizers(self, netG, netsD):
+        return [text_encoder, image_encoder, netG, netsD, epoch, checkpoint_g, checkpoint_d]
+
+
+    def define_optimizers(self, netG, netsD, checkpoint_g, checkpoint_d):
         optimizersD = []
         num_Ds = len(netsD)
         for i in range(num_Ds):
             opt = optim.Adam(netsD[i].parameters(),
                              lr=cfg.TRAIN.DISCRIMINATOR_LR,
                              betas=(0.5, 0.999))
+            if checkpoint_d is not None:
+                opt.load_state_dict(checkpoint_d[i]['optimizer'])
             optimizersD.append(opt)
 
         optimizerG = optim.Adam(netG.parameters(),
                                 lr=cfg.TRAIN.GENERATOR_LR,
                                 betas=(0.5, 0.999))
+        if checkpoint_g is not None:
+            optimizerG.load_state_dict(checkpoint_g['optimizer'])
 
         return optimizerG, optimizersD
 
@@ -162,16 +172,18 @@ class condGANTrainer(object):
 
         return real_labels, fake_labels, match_labels
 
-    def save_model(self, netG, avg_param_G, netsD, epoch):
+    def save_model(self, netG, avg_param_G, netsD, epoch, loss, optimizer_g, optimizers_d):
         backup_para = copy_G_params(netG)
         load_params(netG, avg_param_G)
-        torch.save(netG.state_dict(),
+        torch.save({'epoch': epoch, 'model_state_dict': netG.state_dict(), 'optimizer': optimizer_g.state_dict(),
+                    'loss': loss[0]},
             '%s/netG_epoch_%d.pth' % (self.model_dir, epoch))
         load_params(netG, backup_para)
         #
         for i in range(len(netsD)):
             netD = netsD[i]
-            torch.save(netD.state_dict(),
+            torch.save({'epoch': epoch, 'model_state_dict': netD.state_dict(),
+                        'optimizer': optimizers_d[i].state_dict(), 'loss': loss[i+1]},
                 '%s/netD%d.pth' % (self.model_dir, i))
         print('Save G/Ds models.')
 
@@ -222,9 +234,9 @@ class condGANTrainer(object):
             im.save(fullpath)
 
     def train(self):
-        text_encoder, image_encoder, netG, netsD, start_epoch = self.build_models()
+        text_encoder, image_encoder, netG, netsD, start_epoch, checkpoint_g, checkpoint_d = self.build_models()
         avg_param_G = copy_G_params(netG)
-        optimizerG, optimizersD = self.define_optimizers(netG, netsD)
+        optimizerG, optimizersD = self.define_optimizers(netG, netsD, checkpoint_g, checkpoint_d)
         real_labels, fake_labels, match_labels = self.prepare_labels()
 
         ##############
@@ -240,6 +252,7 @@ class condGANTrainer(object):
 
             VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
             VQA_net.load_state_dict(log['weights'])
+            VQA_net.eval()
 
             log_softmax = nn.LogSoftmax()
 
@@ -329,6 +342,7 @@ class condGANTrainer(object):
                     errD.backward()
                     optimizersD[i].step()
                     errD_total += errD
+                    lossD.append(errD.item())
                     D_logs += 'errD%d: %.2f ' % (i, errD.item())
 
                 #######################################################
@@ -413,9 +427,9 @@ class condGANTrainer(object):
                      end_t - start_t))
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
-                self.save_model(netG, avg_param_G, netsD, epoch)
+                self.save_model(netG, avg_param_G, netsD, epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
 
-        self.save_model(netG, avg_param_G, netsD, self.max_epoch)
+        self.save_model(netG, avg_param_G, netsD, self.max_epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
 
     def save_singleimages(self, images, filenames, save_dir,
                           split_dir, sentenceID=0):
@@ -468,7 +482,7 @@ class condGANTrainer(object):
             state_dict = \
                 torch.load(model_dir, map_location=lambda storage, loc: storage)
             # state_dict = torch.load(cfg.TRAIN.NET_G)
-            netG.load_state_dict(state_dict)
+            netG.load_state_dict(state_dict['model_state_dict'])
             print('Load G from: ', model_dir)
 
             # the path to save generated images
