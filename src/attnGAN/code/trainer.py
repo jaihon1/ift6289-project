@@ -254,7 +254,7 @@ class condGANTrainer(object):
 
             data_iter = iter(self.data_loader)
             step = 0
-            for step in tqdm(range(len(self.num_batches))):
+            for step in tqdm(range(self.num_batches)):
                 # reset requires_grad to be trainable for all Ds
                 # self.set_requires_grad_value(netsD, True)
 
