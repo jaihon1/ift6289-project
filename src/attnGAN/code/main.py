@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--with_vqa', action='store_true')
+    parser.add_argument('--comet', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -133,7 +134,7 @@ if __name__ == "__main__":
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
     # Define models and go to train/evaluate
-    algo = trainer(cfg.DATA_DIR, output_dir, dataloader, dataset.n_words, dataset.ixtoword, args.with_vqa)
+    algo = trainer(cfg.DATA_DIR, output_dir, dataloader, dataset.n_words, dataset.ixtoword, args.with_vqa, args.comet, cfg)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:
