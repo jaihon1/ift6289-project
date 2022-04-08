@@ -138,7 +138,11 @@ if __name__ == "__main__":
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:
-        algo.train()
+        if args.comet:
+            with algo.experiment.train():
+                algo.train()
+        else:
+            algo.train()
     else:
         '''generate images from pre-extracted embeddings'''
         if cfg.B_VALIDATION:
