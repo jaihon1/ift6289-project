@@ -31,7 +31,7 @@ import vqa.utils as vqa_utils
 
 # ################# Text to image task############################ #
 class condGANTrainer(object):
-    def __init__(self, data_dir, output_dir, data_loader, n_words, ixtoword):
+    def __init__(self, data_dir, output_dir, data_loader, n_words, ixtoword, with_vqa=True):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
@@ -49,6 +49,7 @@ class condGANTrainer(object):
         self.ixtoword = ixtoword
         self.data_loader = data_loader
         self.num_batches = len(self.data_loader)
+        self.with_vqa = with_vqa
 
     def build_models(self):
         # ###################encoders######################################## #
@@ -225,18 +226,27 @@ class condGANTrainer(object):
         avg_param_G = copy_G_params(netG)
         optimizerG, optimizersD = self.define_optimizers(netG, netsD)
         real_labels, fake_labels, match_labels = self.prepare_labels()
-        real_labels_qas, fake_labels_qas, match_labels_qas = self.prepare_labels()
 
-        processed_image_net = Net_VQA_process()
-        processed_image_net.eval()
+        ##############
+        # load models needed for vqa model
+        if self.with_vqa:
+            real_labels_qas, fake_labels_qas, match_labels_qas = self.prepare_labels()
 
-        log = torch.load(os.path.join(self.data_dir, '2017-08-04_00.55.19.pth'))
-        tokens = len(log['vocab']['question']) + 1
+            processed_image_net = Net_VQA_process()
+            processed_image_net.eval()
 
-        VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
-        VQA_net.load_state_dict(log['weights'])
+            log = torch.load(os.path.join(self.data_dir, '2017-08-04_00.55.19.pth'))
+            tokens = len(log['vocab']['question']) + 1
 
-        log_softmax = nn.LogSoftmax().to('cuda:0')
+            VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
+            VQA_net.load_state_dict(log['weights'])
+
+            log_softmax = nn.LogSoftmax()
+
+            if cfg.CUDA:
+                log_softmax.to('cuda:0')
+                processed_image_net.to('cuda:0')
+                VQA_net.to('cuda:0')
 
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
@@ -244,8 +254,6 @@ class condGANTrainer(object):
         fixed_noise = Variable(torch.FloatTensor(batch_size, nz).normal_(0, 1))
         if cfg.CUDA:
             noise, fixed_noise = noise.to('cuda:0'), fixed_noise.to('cuda:0')
-            processed_image_net.to('cuda:0')
-            VQA_net.to('cuda:0')
 
         gen_iterations = 0
         # gen_iterations = start_epoch * self.num_batches
@@ -262,7 +270,7 @@ class condGANTrainer(object):
                 # (1) Prepare training data and Compute text embeddings
                 ######################################################
                 data = data_iter.next()
-                imgs, captions, cap_lens, class_ids, keys, qas_gan, qas_len, q_vqa, ans_vqa, item, q_len_vqa  = prepare_data(data)
+                imgs, captions, cap_lens, class_ids, keys, qas_gan, qas_len, q_vqa, ans_vqa, item, q_len_vqa = prepare_data(data)
 
                 hidden = text_encoder.init_hidden(batch_size)
                 # words_embs: batch_size x nef x seq_len
@@ -274,19 +282,22 @@ class condGANTrainer(object):
                 if mask.size(1) > num_words:
                     mask = mask[:, :num_words]
 
-                hidden_qas = text_encoder.init_hidden(batch_size)
-                # words_embs: batch_size x nef x seq_len
-                # sent_emb: batch_size x nef
-                sort_qas_lens, sorted_qas_indices = \
-                    torch.sort(qas_len, 0, True)
-                qas_gan = qas_gan[sorted_qas_indices].squeeze()
-                match_labels_qas = match_labels_qas[sorted_qas_indices]
-                words_embs_qas, sent_emb_qas = text_encoder(qas_gan, sort_qas_lens, hidden_qas)
-                words_embs_qas, sent_emb_qas = words_embs_qas.detach(), sent_emb_qas.detach()
-                mask_qas = (qas_gan == 0)
-                num_words_qas = words_embs_qas.size(2)
-                if mask_qas.size(1) > num_words_qas:
-                    mask_qas = mask_qas[:, :num_words_qas]
+                #############################
+                # for vqa
+                if self.with_vqa:
+                    hidden_qas = text_encoder.init_hidden(batch_size)
+                    # words_embs: batch_size x nef x seq_len
+                    # sent_emb: batch_size x nef
+                    sort_qas_lens, sorted_qas_indices = \
+                        torch.sort(qas_len, 0, True)
+                    qas_gan = qas_gan[sorted_qas_indices].squeeze()
+                    match_labels_qas = match_labels_qas[sorted_qas_indices]
+                    words_embs_qas, sent_emb_qas = text_encoder(qas_gan, sort_qas_lens, hidden_qas)
+                    words_embs_qas, sent_emb_qas = words_embs_qas.detach(), sent_emb_qas.detach()
+                    mask_qas = (qas_gan == 0)
+                    num_words_qas = words_embs_qas.size(2)
+                    if mask_qas.size(1) > num_words_qas:
+                        mask_qas = mask_qas[:, :num_words_qas]
 
                 #######################################################
                 # (2) Generate fake images
@@ -295,9 +306,10 @@ class condGANTrainer(object):
                 # fake_imgs on captions
                 fake_imgs, _, mu, logvar = netG(noise, sent_emb, words_embs, mask)
 
-                # fake images on QAs pairs
-                noise.detach().normal_(0,1)
-                fake_imgs_qas, _, mu_qas, logvar_qas = netG(noise, sent_emb_qas, words_embs_qas, mask_qas)
+                if self.with_vqa:
+                    # fake images on QAs pairs
+                    noise.detach().normal_(0,1)
+                    fake_imgs_qas, _, mu_qas, logvar_qas = netG(noise, sent_emb_qas, words_embs_qas, mask_qas)
 
                 #######################################################
                 # (3) Update D network
@@ -308,8 +320,11 @@ class condGANTrainer(object):
                     netsD[i].zero_grad()
                     errD = discriminator_loss(netsD[i], imgs[i], fake_imgs[i],
                                               sent_emb, real_labels, fake_labels)
-                    errD+=discriminator_loss_qas(netsD[i], imgs[i][sorted_qas_indices], fake_imgs_qas[i],
-                                                 sent_emb_qas, fake_labels_qas)
+                    ############
+                    # for vqa
+                    if self.with_vqa:
+                        errD+=discriminator_loss_qas(netsD[i], imgs[i][sorted_qas_indices], fake_imgs_qas[i],
+                                                     sent_emb_qas, fake_labels_qas)
                     # backward and update parameters
                     errD.backward()
                     optimizersD[i].step()
@@ -323,41 +338,51 @@ class condGANTrainer(object):
                 # step += 1
                 gen_iterations += 1
 
-                fake_imgs_processed = []
-                loss_vqa = 0
-                VQA_net.zero_grad()
-                acc = []
-                for i in range(len(netsD)):
-                    # prepare fake images for VQA model
-                    fake_imgs_processed.append(processed_image_net(fake_imgs_qas[i]).type(torch.FloatTensor))
-                    sort_q_lens, sorted_q_indices = \
-                        torch.sort(q_len_vqa, 0, True)
-                    q_vqa = q_vqa[sorted_q_indices]
-                    ans_vqa = ans_vqa[sorted_q_indices]
-                    out = VQA_net(fake_imgs_processed[i][sorted_q_indices], q_vqa, sort_q_lens)
+                #############################################
+                # pass through vqa model
+                if self.with_vqa:
+                    fake_imgs_processed = []
+                    loss_vqa = 0
+                    VQA_net.zero_grad()
+                    acc = []
+                    for i in range(len(netsD)):
+                        # prepare fake images for VQA model
+                        fake_imgs_processed.append(processed_image_net(fake_imgs_qas[i]).type(torch.FloatTensor))
+                        sort_q_lens, sorted_q_indices = \
+                            torch.sort(q_len_vqa, 0, True)
+                        q_vqa = q_vqa[sorted_q_indices]
+                        ans_vqa = ans_vqa[sorted_q_indices]
+                        out = VQA_net(fake_imgs_processed[i][sorted_q_indices], q_vqa, sort_q_lens)
 
-                    nll = -log_softmax(out)
-                    loss_vqa += (nll * ans_vqa / 10).sum(dim=1).mean()
-                    acc.append(vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach()).mean().item())
+                        nll = -log_softmax(out)
+                        loss_vqa += (nll * ans_vqa / 10).sum(dim=1).mean()
+                        acc.append(vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach()).mean().item())
                 # do not need to compute gradient for Ds
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
                 errG_total, G_logs = \
                     generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
-                loss_logs = generator_loss(netsD, image_encoder, fake_imgs_qas, real_labels_qas,
-                                           words_embs_qas, sent_emb_qas, match_labels_qas, sort_qas_lens,
-                                           class_ids[sorted_qas_indices.cpu().numpy()])
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
-                kl_loss_qas = KL_loss(mu_qas, logvar_qas)
-                errG_total += kl_loss_qas
-                errG_total += loss_vqa
-                errG_total += loss_logs[0]
-                G_logs += loss_logs[1]
                 G_logs += 'kl_loss: %.2f ' % kl_loss.data.item()
-                G_logs += 'kl_loss_qas: %.2f ' % kl_loss_qas.data.item()
-                G_logs += 'Accuracy VQA: %.2f' % float(sum(acc)/3)
+
+                ##################
+                # compute loss with added vqa model
+                if self.with_vqa:
+                    loss_logs = generator_loss(netsD, image_encoder, fake_imgs_qas, real_labels_qas,
+                                               words_embs_qas, sent_emb_qas, match_labels_qas, sort_qas_lens,
+                                               class_ids[sorted_qas_indices.cpu().numpy()])
+                    # loss vqa
+                    kl_loss_qas = KL_loss(mu_qas, logvar_qas)
+                    errG_total += kl_loss_qas
+                    errG_total += loss_vqa
+                    errG_total += loss_logs[0]
+                    G_logs += loss_logs[1]
+                    G_logs += 'kl_loss_qas: %.2f ' % kl_loss_qas.data.item()
+                    G_logs += 'Accuracy VQA: %.2f' % float(sum(acc)/3)
+
+                ######################
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
