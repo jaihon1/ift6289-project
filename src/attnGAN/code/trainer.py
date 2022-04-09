@@ -17,7 +17,7 @@ from model import G_DCGAN, G_NET
 from datasets import prepare_data, prepare_data_valid
 from model import RNN_ENCODER, CNN_ENCODER
 
-from inception_score import get_inception_score
+from inception_score import inception_score
 
 from miscc.losses import words_loss
 from miscc.losses import discriminator_loss, generator_loss, KL_loss, discriminator_loss_qas
@@ -282,7 +282,7 @@ class condGANTrainer(object):
         # gen_iterations = start_epoch * self.num_batches
         for epoch in range(start_epoch, self.max_epoch):
             start_t = time.time()
-
+            netG.train()
             acc_epoch = 0
             data_iter = iter(self.data_loader)
             # step = 0
@@ -613,7 +613,7 @@ class condGANTrainer(object):
                     im = Image.fromarray(im)
                     fullpath = '%s_s%d.png' % (s_tmp, k)
                     im.save(fullpath)
-            mean, std = get_inception_score(images)
+            mean, std = inception_score(images, resize=True)
         return mean, std
 
     def gen_example(self, data_dic):
