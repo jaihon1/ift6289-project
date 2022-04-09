@@ -129,17 +129,17 @@ class condGANTrainer(object):
             print('Load G from: ', cfg.TRAIN.NET_G)
             istart = cfg.TRAIN.NET_G.rfind('_') + 1
             iend = cfg.TRAIN.NET_G.rfind('.')
-            epoch = cfg.TRAIN.NET_G[istart:iend]
-            epoch = int(epoch) + 1
+            epoch = checkpoint_g['epoch']
+            epoch = int(epoch)
             if cfg.TRAIN.B_NET_D:
                 Gname = cfg.TRAIN.NET_G
                 checkpoint_d = []
                 for i in range(len(netsD)):
                     s_tmp = Gname[:Gname.rfind('/')]
-                    Dname = '%s/netD%d.pth' % (s_tmp, i)
+                    Dname = '%s/netD%d.pth.tar' % (s_tmp, i)
                     print('Load D from: ', Dname)
                     checkpoint_d.append(torch.load(Dname, map_location=lambda storage, loc: storage))
-                    netsD[i].load_state_dict(state_dict)
+                    netsD[i].load_state_dict(checkpoint_d[i]['model_state_dict'])
         # ########################################################### #
         if cfg.CUDA:
             text_encoder = text_encoder.to('cuda:0')
@@ -159,6 +159,7 @@ class condGANTrainer(object):
                              lr=cfg.TRAIN.DISCRIMINATOR_LR,
                              betas=(0.5, 0.999))
             if checkpoint_d is not None:
+                print('Loading optimizers for discriminator %d' % i)
                 opt.load_state_dict(checkpoint_d[i]['optimizer'])
             optimizersD.append(opt)
 
@@ -166,6 +167,7 @@ class condGANTrainer(object):
                                 lr=cfg.TRAIN.GENERATOR_LR,
                                 betas=(0.5, 0.999))
         if checkpoint_g is not None:
+            print('Loading optimizers for generator')
             optimizerG.load_state_dict(checkpoint_g['optimizer'])
 
         return optimizerG, optimizersD
@@ -187,14 +189,16 @@ class condGANTrainer(object):
         load_params(netG, avg_param_G)
         torch.save({'epoch': epoch, 'model_state_dict': netG.state_dict(), 'optimizer': optimizer_g.state_dict(),
                     'loss': loss[0]},
-            '%s/netG_epoch_%d.pth' % (self.model_dir, epoch))
+            '%s/netG_epoch_%d.pth.tar' % (self.model_dir, epoch))
         load_params(netG, backup_para)
         #
         for i in range(len(netsD)):
             netD = netsD[i]
+            # print(netD)
+            # print(netD.state_dict())
             torch.save({'epoch': epoch, 'model_state_dict': netD.state_dict(),
                         'optimizer': optimizers_d[i].state_dict(), 'loss': loss[i+1]},
-                '%s/netD%d.pth' % (self.model_dir, i))
+                '%s/netD%d.pth.tar' % (self.model_dir, i))
         print('Save G/Ds models.')
 
     def set_requires_grad_value(self, models_list, brequires):
@@ -262,7 +266,7 @@ class condGANTrainer(object):
 
             VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
             VQA_net.load_state_dict(log['weights'])
-            VQA_net.eval()
+            # VQA_net.eval()
 
             log_softmax = nn.LogSoftmax()
 

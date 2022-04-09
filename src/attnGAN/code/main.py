@@ -112,8 +112,11 @@ if __name__ == "__main__":
 
     now = datetime.datetime.now(dateutil.tz.tzlocal())
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
-    output_dir = os.path.join(cfg.OUTPUT_DIR, '/output/%s_%s_%s' % (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp))
-
+    print(cfg.OUTPUT_DIR)
+    output_dir = os.path.join(cfg.OUTPUT_DIR, 'output/%s_%s_%s' % (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp))
+    if cfg.TRAIN.NET_G != '' and cfg.TRAIN.FLAG:
+        output_dir = os.path.join(cfg.OUTPUT_DIR, 'output', cfg.TRAIN.NET_G.split('/')[-3])
+    print(output_dir)
     split_dir, bshuffle = 'train', True
     if not cfg.TRAIN.FLAG:
         # bshuffle = False
