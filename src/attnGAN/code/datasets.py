@@ -168,6 +168,7 @@ class TextDataset(data.Dataset):
 
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
         self.number_example = len(self.filenames)
+        self.split = split
 
         if split=='train':
             train = True
@@ -471,7 +472,7 @@ class TextDataset(data.Dataset):
             bbox = None
             data_dir = self.data_dir
         #
-        img_name = '%s/images/%s.jpg' % (data_dir, key)
+        img_name = '%s/images_%s/%s.jpg' % (data_dir, self.split, key)
         imgs = get_imgs(img_name, self.imsize,
                         bbox, self.transform, normalize=self.norm)
         img_id = int(key.split('_')[-1])

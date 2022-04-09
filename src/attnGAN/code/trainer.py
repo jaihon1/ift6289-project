@@ -614,6 +614,8 @@ class condGANTrainer(object):
                     fullpath = '%s_s%d.png' % (s_tmp, k)
                     im.save(fullpath)
             mean, std = inception_score(images, resize=True)
+            # valid_dir = os.path.join(self.data_dir, 'images_test')
+            # os.system('python -m pytorch_fid %s %s' % (valid_dir, folder))
         return mean, std
 
     def gen_example(self, data_dic):
