@@ -76,6 +76,36 @@ def prepare_data(data):
             class_ids, keys, qas_gan, qas_len_gan, q_vqa, ans_vqa, item, q_len_vqa]
 
 
+def prepare_data_valid(data):
+    imgs, captions, captions_lens, class_ids, keys, _, _, _, _, _, _ = data
+
+    # sort data by the length in a decreasing order
+    sorted_cap_lens, sorted_cap_indices = \
+        torch.sort(captions_lens, 0, True)
+
+    real_imgs = []
+    for i in range(len(imgs)):
+        imgs[i] = imgs[i][sorted_cap_indices]
+        if cfg.CUDA:
+            real_imgs.append(Variable(imgs[i]).to('cuda:0'))
+        else:
+            real_imgs.append(Variable(imgs[i]))
+
+    captions = captions[sorted_cap_indices].squeeze()
+    class_ids = class_ids[sorted_cap_indices].numpy()
+    # sent_indices = sent_indices[sorted_cap_indices]
+    keys = [keys[i] for i in sorted_cap_indices.numpy()]
+    # print('keys', type(keys), keys[-1])  # list
+    if cfg.CUDA:
+        captions = Variable(captions).to('cuda:0')
+        sorted_cap_lens = Variable(sorted_cap_lens).to('cuda:0')
+    else:
+        captions = Variable(captions)
+        sorted_cap_lens = Variable(sorted_cap_lens)
+
+    return [real_imgs, captions, sorted_cap_lens, class_ids, keys]
+
+
 def get_imgs(img_path, imsize, bbox=None,
              transform=None, normalize=None):
     img = Image.open(img_path).convert('RGB')

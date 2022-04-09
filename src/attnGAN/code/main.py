@@ -133,8 +133,13 @@ if __name__ == "__main__":
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE,
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
+    dataloader_test=None
+    # dataset_test = TextDataset(cfg.DATA_DIR, 'test', base_size=cfg.TREE.BASE_SIZE, transform=image_transform)
+    # dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.TRAIN.BATCH_SIZE, drop_last=True,
+    #                                               shuffle=False, num_workers=int(cfg.WORKERS))
+
     # Define models and go to train/evaluate
-    algo = trainer(cfg.DATA_DIR, output_dir, dataloader, dataset.n_words, dataset.ixtoword, args.with_vqa, args.comet, cfg)
+    algo = trainer(cfg.DATA_DIR, output_dir, dataloader, dataset.n_words, dataset.ixtoword, dataloader_test, args.with_vqa, args.comet, cfg)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:
