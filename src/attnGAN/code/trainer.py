@@ -58,7 +58,7 @@ class condGANTrainer(object):
             import comet_ml
             from comet_ml import Experiment
             comet_ml.init(project_name='ift6289')
-            self.experiment = Experiment()
+            self.experiment = Experiment(api_key=os.environ['COMET_API_KEY'])
             self.experiment.log_parameters(cfg)
 
     def build_models(self):
@@ -445,15 +445,15 @@ class condGANTrainer(object):
                   % (epoch, self.max_epoch, self.num_batches,
                      errD_total.item(), errG_total.item(),
                      end_t - start_t))
-            mean_inc_score, std_inc_score = 0, 0
+            mean_inc_score, std_inc_score, fid = 0, 0, 0
             if self.data_test:
-                mean_inc_score, std_inc_score = self.evaluate(netG, text_encoder, epoch)
+                mean_inc_score, std_inc_score, fid = self.evaluate(netG, text_encoder, epoch)
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
                 self.save_model(netG, avg_param_G, netsD, epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
             if self.comet:
                 self.experiment.log_metrics({'accuracy_vqa':acc_epoch/step, 'inc_score':mean_inc_score,
-                                             'std_inc_score': std_inc_score}, step=epoch)
+                                             'std_inc_score': std_inc_score, 'fid': fid}, step=epoch)
         self.save_model(netG, avg_param_G, netsD, self.max_epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
 
     def save_singleimages(self, images, filenames, save_dir,
@@ -565,62 +565,63 @@ class condGANTrainer(object):
 
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
-        noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
-        noise = noise.to('cuda:0')
+        with torch.no_grad():
+            noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
+            noise = noise.to('cuda:0')
 
-        # the path to save generated images
-        save_dir = '%s/epoch_%d/%s' % (self.model_dir, epoch, 'valid')
-        mkdir_p(save_dir)
+            # the path to save generated images
+            save_dir = '%s/epoch_%d/%s' % (self.image_dir, epoch, 'valid')
+            mkdir_p(save_dir)
 
-        cnt = 0
-        mean, std = 0, 0
-        for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
-            images = []
-            for step, data in enumerate(self.data_test, 0):
-                cnt += batch_size
-                if step % 100 == 0:
-                    print('step: ', step)
-                # if step > 50:
-                #     break
+            cnt = 0
+            mean, std = 0, 0
+            for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+                images = []
+                for step, data in enumerate(self.data_test, 0):
+                    cnt += batch_size
+                    if step % 100 == 0:
+                        print('step: ', step)
+                    # if step > 50:
+                    #     break
 
-                imgs, captions, cap_lens, class_ids, keys = prepare_data_valid(data)
+                    imgs, captions, cap_lens, class_ids, keys = prepare_data_valid(data)
 
-                hidden = text_encoder.init_hidden(batch_size)
-                # words_embs: batch_size x nef x seq_len
-                # sent_emb: batch_size x nef
-                words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-                words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-                mask = (captions == 0)
-                num_words = words_embs.size(2)
-                if mask.size(1) > num_words:
-                    mask = mask[:, :num_words]
+                    hidden = text_encoder.init_hidden(batch_size)
+                    # words_embs: batch_size x nef x seq_len
+                    # sent_emb: batch_size x nef
+                    words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
+                    words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
+                    mask = (captions == 0)
+                    num_words = words_embs.size(2)
+                    if mask.size(1) > num_words:
+                        mask = mask[:, :num_words]
 
-                #######################################################
-                # (2) Generate fake images
-                ######################################################
-                noise.detach().normal_(0, 1)
-                fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
-                for j in range(batch_size):
-                    s_tmp = '%s/single/%s' % (save_dir, keys[j])
-                    folder = s_tmp[:s_tmp.rfind('/')]
-                    if not os.path.isdir(folder):
-                        print('Make a new folder: ', folder)
-                        mkdir_p(folder)
-                    k = -1
-                    # for k in range(len(fake_imgs)):
-                    im = fake_imgs[k][j].detach().cpu().numpy()
-                    # [-1, 1] --> [0, 255]
-                    im = (im + 1.0) * 127.5
-                    im = im.astype(np.uint8)
-                    im = np.transpose(im, (1, 2, 0))
-                    images.append(im)
-                    im = Image.fromarray(im)
-                    fullpath = '%s_s%d.png' % (s_tmp, k)
-                    im.save(fullpath)
+                    #######################################################
+                    # (2) Generate fake images
+                    ######################################################
+                    noise.detach().normal_(0, 1)
+                    fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
+                    for j in range(batch_size):
+                        s_tmp = '%s/single/%s' % (save_dir, keys[j])
+                        folder = s_tmp[:s_tmp.rfind('/')]
+                        if not os.path.isdir(folder):
+                            print('Make a new folder: ', folder)
+                            mkdir_p(folder)
+                        k = -1
+                        # for k in range(len(fake_imgs)):
+                        im = fake_imgs[k][j].detach().cpu().numpy()
+                        # [-1, 1] --> [0, 255]
+                        im = (im + 1.0) * 127.5
+                        im = im.astype(np.uint8)
+                        images.append(im)
+                        im = np.transpose(im, (1, 2, 0))
+                        im = Image.fromarray(im)
+                        fullpath = '%s_s%d.png' % (s_tmp, k)
+                        im.save(fullpath)
             mean, std = inception_score(images, resize=True)
-            # valid_dir = os.path.join(self.data_dir, 'images_test')
-            # os.system('python -m pytorch_fid %s %s' % (valid_dir, folder))
-        return mean, std
+            valid_dir = os.path.join(self.data_dir, 'images_val')
+            fid = os.popen('python -m pytorch_fid %s %s' % (valid_dir, folder)).read().rstrip('\n').split(' ')[-1]
+        return mean, std, float(fid)
 
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
