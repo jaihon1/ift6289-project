@@ -56,10 +56,15 @@ class condGANTrainer(object):
         self.comet = comet
         if comet:
             import comet_ml
-            from comet_ml import Experiment
             comet_ml.init(project_name='ift6289')
-            self.experiment = Experiment(api_key=os.environ['COMET_API_KEY'])
-            self.experiment.log_parameters(cfg)
+            if cfg.TRAIN.NET_G != '' and cfg.TRAIN.FLAG:
+                self.experiment = comet_ml.ExistingExperiment(api_key=os.environ['COMET_API_KEY'], 
+                previous_experiment=os.environ['COMET_EXPERIMENT_KEY'], log_env_details=True,
+                log_env_gpu=True, log_env_cpu=True,)
+            else:
+                from comet_ml import Experiment
+                self.experiment = Experiment(api_key=os.environ['COMET_API_KEY'])
+                self.experiment.log_parameters(cfg)
 
     def build_models(self):
         # ###################encoders######################################## #
@@ -130,7 +135,10 @@ class condGANTrainer(object):
             istart = cfg.TRAIN.NET_G.rfind('_') + 1
             iend = cfg.TRAIN.NET_G.rfind('.')
             epoch = checkpoint_g['epoch']
-            epoch = int(epoch)
+            epoch = int(epoch)+1
+            if self.comet:
+                self.experiment.set_step(epoch*self.num_batches)
+                self.experiment.set_epoch(epoch)
             if cfg.TRAIN.B_NET_D:
                 Gname = cfg.TRAIN.NET_G
                 checkpoint_d = []
@@ -140,6 +148,8 @@ class condGANTrainer(object):
                     print('Load D from: ', Dname)
                     checkpoint_d.append(torch.load(Dname, map_location=lambda storage, loc: storage))
                     netsD[i].load_state_dict(checkpoint_d[i]['model_state_dict'])
+                    if cfg.TRAIN.FLAG:
+                        netsD[i].train()
         # ########################################################### #
         if cfg.CUDA:
             text_encoder = text_encoder.to('cuda:0')
