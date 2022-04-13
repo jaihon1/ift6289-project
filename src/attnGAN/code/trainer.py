@@ -455,15 +455,17 @@ class condGANTrainer(object):
                   % (epoch, self.max_epoch, self.num_batches,
                      errD_total.item(), errG_total.item(),
                      end_t - start_t))
-            mean_inc_score, std_inc_score, fid = 0, 0, 0
-            if self.data_test:
-                mean_inc_score, std_inc_score, fid = self.evaluate(netG, text_encoder, epoch)
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
                 self.save_model(netG, avg_param_G, netsD, epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
+            
+            mean_inc_score, std_inc_score, fid = 0, 0, 0
+            if self.data_test:
+                mean_inc_score, std_inc_score, fid = self.evaluate(netG, text_encoder, epoch)
+            
             if self.comet:
                 self.experiment.log_metrics({'accuracy_vqa':acc_epoch/step, 'inc_score':mean_inc_score,
-                                             'std_inc_score': std_inc_score, 'fid': fid}, step=epoch)
+                                             'std_inc_score': std_inc_score}, step=epoch)
         self.save_model(netG, avg_param_G, netsD, self.max_epoch, [errG_total.item()]+lossD, optimizerG, optimizersD)
 
     def save_singleimages(self, images, filenames, save_dir,
@@ -630,7 +632,8 @@ class condGANTrainer(object):
                         im.save(fullpath)
             mean, std = inception_score(images, resize=True)
             valid_dir = os.path.join(self.data_dir, 'images_val')
-            fid = os.popen('python -m pytorch_fid %s %s' % (valid_dir, folder)).read().rstrip('\n').split(' ')[-1]
+            fid=0
+            # fid = os.popen('python -m pytorch_fid %s %s' % (valid_dir, folder)).read().rstrip('\n').split(' ')[-1]
         return mean, std, float(fid)
 
     def gen_example(self, data_dic):
