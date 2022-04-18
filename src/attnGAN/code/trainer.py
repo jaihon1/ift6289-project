@@ -628,8 +628,9 @@ class condGANTrainer(object):
                         images.append(im)
                         im = np.transpose(im, (1, 2, 0))
                         im = Image.fromarray(im)
-                        fullpath = '%s_s%d.png' % (s_tmp, k)
-                        im.save(fullpath)
+                        if step<10:
+                            fullpath = '%s_s%d.png' % (s_tmp, k)
+                            im.save(fullpath)
             mean, std = inception_score(images, resize=True)
             valid_dir = os.path.join(self.data_dir, 'images_val')
             fid=0
