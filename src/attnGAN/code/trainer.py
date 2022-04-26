@@ -8,6 +8,7 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from miscc.config import cfg
 from miscc.utils import mkdir_p
@@ -461,7 +462,7 @@ class condGANTrainer(object):
             
             mean_inc_score, std_inc_score, fid = 0, 0, 0
             if self.data_test:
-                mean_inc_score, std_inc_score, fid = self.evaluate(netG, text_encoder, epoch)
+                mean_inc_score, std_inc_score, fid, _ = self.evaluate(netG, text_encoder, epoch)
             
             if self.comet:
                 self.experiment.log_metrics({'accuracy_vqa':acc_epoch/step, 'inc_score':mean_inc_score,
@@ -491,8 +492,6 @@ class condGANTrainer(object):
         if cfg.TRAIN.NET_G == '':
             print('Error: the path for morels is not found!')
         else:
-            if split_dir == 'test':
-                split_dir = 'valid'
             # Build and load the generator
             if cfg.GAN.B_DCGAN:
                 netG = G_DCGAN()
@@ -510,10 +509,10 @@ class condGANTrainer(object):
             text_encoder = text_encoder.to('cuda:0')
             text_encoder.eval()
 
-            batch_size = self.batch_size
-            nz = cfg.GAN.Z_DIM
-            noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
-            noise = noise.to('cuda:0')
+            # batch_size = self.batch_size
+            # nz = cfg.GAN.Z_DIM
+            # noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
+            # noise = noise.to('cuda:0')
 
             model_dir = cfg.TRAIN.NET_G
             state_dict = \
@@ -521,55 +520,86 @@ class condGANTrainer(object):
             # state_dict = torch.load(cfg.TRAIN.NET_G)
             netG.load_state_dict(state_dict['model_state_dict'])
             print('Load G from: ', model_dir)
+            mean_is, std_is, fid, images = self.evaluate(netG, text_encoder, state_dict['epoch'])
+            print('Inception Score: %s, FID: %s' % (mean_is, fid))
 
-            # the path to save generated images
-            s_tmp = model_dir[:model_dir.rfind('.pth')]
-            save_dir = '%s/%s' % (s_tmp, split_dir)
-            mkdir_p(save_dir)
+            processed_image_net = Net_VQA_process()
+            processed_image_net.eval()
 
-            cnt = 0
+            log = torch.load(os.path.join(self.data_dir, '2017-08-04_00.55.19.pth'))
+            tokens = len(log['vocab']['question']) + 1
 
-            for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
-                for step, data in enumerate(self.data_loader, 0):
-                    cnt += batch_size
-                    if step % 100 == 0:
-                        print('step: ', step)
-                    # if step > 50:
-                    #     break
+            VQA_net = torch.nn.DataParallel(vqa_model.Net(tokens))
+            VQA_net.load_state_dict(log['weights'])
+            VQA_net.eval()
 
-                    imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
+            if cfg.CUDA:
+                processed_image_net.to('cuda:0')
+                VQA_net.to('cuda:0')
 
-                    hidden = text_encoder.init_hidden(batch_size)
-                    # words_embs: batch_size x nef x seq_len
-                    # sent_emb: batch_size x nef
-                    words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-                    words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-                    mask = (captions == 0)
-                    num_words = words_embs.size(2)
-                    if mask.size(1) > num_words:
-                        mask = mask[:, :num_words]
+            fake_imgs = torch.stack(images)
+            loader_images = DataLoader(fake_imgs, batch_size=self.batch_size)
+            acc = []
+            for data, imgs in zip(self.data_loader, loader_images):
+                imgs_processed = processed_image_net(imgs).type(torch.FloatTensor)
+                imgs, captions, cap_lens, class_ids, keys, qas_gan, qas_len, q_vqa, ans_vqa, item, q_len_vqa = prepare_data(data)
+                sort_q_lens, sorted_q_indices = \
+                    torch.sort(q_len_vqa, 0, True)
+                q_vqa = q_vqa[sorted_q_indices]
+                ans_vqa = ans_vqa[sorted_q_indices]
+                out = VQA_net(imgs_processed[sorted_q_indices], q_vqa, sort_q_lens)
 
-                    #######################################################
-                    # (2) Generate fake images
-                    ######################################################
-                    noise.detach().normal_(0, 1)
-                    fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
-                    for j in range(batch_size):
-                        s_tmp = '%s/single/%s' % (save_dir, keys[j])
-                        folder = s_tmp[:s_tmp.rfind('/')]
-                        if not os.path.isdir(folder):
-                            print('Make a new folder: ', folder)
-                            mkdir_p(folder)
-                        k = -1
-                        # for k in range(len(fake_imgs)):
-                        im = fake_imgs[k][j].detach().cpu().numpy()
-                        # [-1, 1] --> [0, 255]
-                        im = (im + 1.0) * 127.5
-                        im = im.astype(np.uint8)
-                        im = np.transpose(im, (1, 2, 0))
-                        im = Image.fromarray(im)
-                        fullpath = '%s_s%d.png' % (s_tmp, k)
-                        im.save(fullpath)
+                acc.append(vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach()).mean().item())
+            mean_acc = float(sum(acc)/len(loader_images))
+            print('Mean accuracy: %s' % mean_acc)
+            # # the path to save generated images
+            # s_tmp = model_dir[:model_dir.rfind('.pth')]
+            # save_dir = '%s/%s' % (s_tmp, split_dir)
+            # mkdir_p(save_dir)
+            #
+            # cnt = 0
+            #
+            # for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+            #     for step, data in enumerate(self.data_loader, 0):
+            #         cnt += batch_size
+            #         if step % 100 == 0:
+            #             print('step: ', step)
+            #         # if step > 50:
+            #         #     break
+            #
+            #         imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
+            #
+            #         hidden = text_encoder.init_hidden(batch_size)
+            #         # words_embs: batch_size x nef x seq_len
+            #         # sent_emb: batch_size x nef
+            #         words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
+            #         words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
+            #         mask = (captions == 0)
+            #         num_words = words_embs.size(2)
+            #         if mask.size(1) > num_words:
+            #             mask = mask[:, :num_words]
+            #
+            #         #######################################################
+            #         # (2) Generate fake images
+            #         ######################################################
+            #         noise.detach().normal_(0, 1)
+            #         fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
+            #         for j in range(batch_size):
+            #             s_tmp = '%s/single/%s' % (save_dir, keys[j])
+            #             folder = s_tmp[:s_tmp.rfind('/')]
+            #             if not os.path.isdir(folder):
+            #                 print('Make a new folder: ', folder)
+            #                 mkdir_p(folder)
+            #             k = -1
+            #             # for k in range(len(fake_imgs)):
+            #             im = fake_imgs[k][j].detach().cpu().numpy()
+            #             # [-1, 1] --> [0, 255]
+            #             im = (im + 1.0) * 127.5
+            #             im = im.astype(np.uint8)
+            #             im = np.transpose(im, (1, 2, 0))
+            #             im = Image.fromarray(im)
+            #             fullpath = '%s_s%d.png' % (s_tmp, k)
+            #             im.save(fullpath)
 
     def evaluate(self, netG, text_encoder, epoch):
         netG.eval()
@@ -577,6 +607,7 @@ class condGANTrainer(object):
 
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
+        images_to_return = None
         with torch.no_grad():
             noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
             noise = noise.to('cuda:0')
@@ -628,14 +659,16 @@ class condGANTrainer(object):
                         images.append(im)
                         im = np.transpose(im, (1, 2, 0))
                         im = Image.fromarray(im)
-                        if step<10:
+                        if step<10 or not cfg.TRAIN.FLAG:
                             fullpath = '%s_s%d.png' % (s_tmp, k)
                             im.save(fullpath)
             mean, std = inception_score(images, resize=True)
-            valid_dir = os.path.join(self.data_dir, 'images_val')
-            fid=0
-            # fid = os.popen('python -m pytorch_fid %s %s' % (valid_dir, folder)).read().rstrip('\n').split(' ')[-1]
-        return mean, std, float(fid)
+            fid = 0
+            if not cfg.TRAIN.FLAG:
+                valid_dir = os.path.join(self.data_dir, 'images_val_crop')
+                fid = os.popen('python -m pytorch_fid %s %s' % (valid_dir, folder)).read().rstrip('\n').split(' ')[-1]
+                images_to_return = images
+        return mean, std, float(fid), images_to_return
 
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
