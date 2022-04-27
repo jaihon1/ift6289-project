@@ -120,7 +120,7 @@ if __name__ == "__main__":
     split_dir, bshuffle = 'train', True
     if not cfg.TRAIN.FLAG:
         # bshuffle = False
-        split_dir = 'test'
+        split_dir = 'val'
 
     # Get data loader
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM - 1))
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     else:
         '''generate images from pre-extracted embeddings'''
         if cfg.B_VALIDATION:
-            algo.sampling(split_dir)  # generate images for the whole valid dataset
+            algo.sampling(output_dir)  # generate images for the whole valid dataset
         else:
             gen_example(dataset.wordtoix, algo)  # generate images for customized captions
     end_t = time.time()

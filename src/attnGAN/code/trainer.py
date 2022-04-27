@@ -488,10 +488,11 @@ class condGANTrainer(object):
             im = Image.fromarray(ndarr)
             im.save(fullpath)
 
-    def sampling(self, split_dir):
+    def sampling(self, output_dir):
         if cfg.TRAIN.NET_G == '':
             print('Error: the path for morels is not found!')
         else:
+            self.image_dir = output_dir
             # Build and load the generator
             if cfg.GAN.B_DCGAN:
                 netG = G_DCGAN()
@@ -537,11 +538,12 @@ class condGANTrainer(object):
                 processed_image_net.to('cuda:0')
                 VQA_net.to('cuda:0')
 
-            fake_imgs = torch.stack(images)
-            loader_images = DataLoader(fake_imgs, batch_size=self.batch_size)
+            fake_imgs = np.stack(images)
+            fake_imgs = torch.from_numpy(fake_imgs)
+            loader_images = DataLoader(fake_imgs.to('cuda:0'), batch_size=self.batch_size)
             acc = []
             for data, imgs in zip(self.data_loader, loader_images):
-                imgs_processed = processed_image_net(imgs).type(torch.FloatTensor)
+                imgs_processed = processed_image_net(imgs.type(torch.FloatTensor).to('cuda:0')).type(torch.FloatTensor)
                 imgs, captions, cap_lens, class_ids, keys, qas_gan, qas_len, q_vqa, ans_vqa, item, q_len_vqa = prepare_data(data)
                 sort_q_lens, sorted_q_indices = \
                     torch.sort(q_len_vqa, 0, True)
