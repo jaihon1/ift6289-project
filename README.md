@@ -35,7 +35,7 @@ Please follow this structure for the data:
 ````
 
 # Configuration
-There are two configuration files that need modification: [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml) and [config.py](src/attnGAN/code/vqa/config.py).
+There are two configuration files that need modifications: [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml) and [config.py](src/attnGAN/code/vqa/config.py).
 
 ### coco_attn2.yml
 For this file, you need to change the following inputs:
@@ -47,7 +47,7 @@ TRAIN:
 ````
 The rest depends on your experiment.
 
-**Note on SNAPSHOT_INTERVAL** This number represent the frequency at which you save your model. For example, if the number is equal to 2, your model will be saved every 2 epochs. 
+**Note on SNAPSHOT_INTERVAL** This number represents the frequency at which you save your model. For example, if the number is equal to 2, your model will be saved every 2 epochs. 
 
 ### config.py
 
@@ -69,10 +69,10 @@ If you want to train using VQA 2.0 dataset, you can then use:
 python main.py --cfg cfg/coco_attn2.yml --manualSeed 10 --gpu 0 --with_vqa
 ````
 
-If you want to record your experiment on comet_ml, you can add an environment variable names `COMET_API_KEY` which contains your API key from Comet ml. Then, you can simply add the argument `--comet` to your run.
+If you want to record your experiment on comet_ml, you can add an environment variable named `COMET_API_KEY` which contains your API key from Comet ml. Then, you can simply add the argument `--comet` to your run.
 
 ### Start training from a previous epoch
-In the case that you want to restart training your model, you can modify the `NET_G` parameter in [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml). For example, if I have a model trained up until epoch 50 called and I want to continue its training, I can modify NET_G to the filepath where this model is saved. Your model should always be saved in the `OUTPUT_DIR` that you have given in [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml). `NET_G` takes the generator filepath. Your model should then be saved under the name of `netG_epoch_50.pth.tar`.
+In the case that you want to restart training your model, you can modify the `NET_G` parameter in [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml). For example, if you have a model trained up until epoch 50 and you want to continue its training, you can modify `NET_G` to the filepath where this model is saved. Your model should always be saved in the `OUTPUT_DIR` that you have given in [coco_attn2.yml](src/attnGAN/code/cfg/coco_attn2.yml). `NET_G` takes the generator filepath. Your model should then be saved under the name of `netG_epoch_50.pth.tar`.
 ````yaml
 TRAIN:
   NET_G: 'netG_epoch_50.pth.tar' # filepath to where your model is saved, put the generator file
@@ -83,7 +83,7 @@ Once this is done, you can start training like you would a new model, but it wil
 
 Every epoch, your model should be evaluated on the validation set and generate the inception score. It should also save about a hundred of generated images so that you can analyse them.
 
-Once training is done, you can evaluated your model on the validation set for the Inception Score, FID and VQA accuracy by running the following command:
+Once training is done, you can evaluate your model on the validation set for the Inception Score, FID and VQA accuracy by running the following command:
 ````shell
 python main.py --cfg cfg/coco_attn2.yml --manualSeed 10 --gpu 0
 ````
@@ -99,3 +99,4 @@ TRAIN:
 ````
 
 This should print the Inception Score, FID score and VQA accuracy.
+For the FID score, it requires that all your original images are of the same sizes and greater than or equal to 256x256. Since the images from COCO are of varying sizes, you should resize or crop them to get the right sizes and save those modified images to a folder names ``images_val_crop`` which should be put in the folder where all your data are. This is necessary if you want to compute the FID score.
