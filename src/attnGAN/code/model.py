@@ -20,7 +20,7 @@ class GLU(nn.Module):
         nc = x.size(1)
         assert nc % 2 == 0, 'channels dont divide 2!'
         nc = int(nc/2)
-        return x[:, :nc] * F.sigmoid(x[:, nc:])
+        return x[:, :nc] * torch.sigmoid(x[:, nc:])
 
 
 def conv1x1(in_planes, out_planes, bias=False):
@@ -113,14 +113,14 @@ class RNN_ENCODER(nn.Module):
 
     def init_weights(self):
         initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
+        self.encoder.weight.detach().uniform_(-initrange, initrange)
         # Do not need to initialize RNN parameters, which have been initialized
         # http://pytorch.org/docs/master/_modules/torch/nn/modules/rnn.html#LSTM
         # self.decoder.weight.data.uniform_(-initrange, initrange)
         # self.decoder.bias.data.fill_(0)
 
     def init_hidden(self, bsz):
-        weight = next(self.parameters()).data
+        weight = next(self.parameters()).detach()
         if self.rnn_type == 'LSTM':
             return (Variable(weight.new(self.nlayers * self.num_directions,
                                         bsz, self.nhidden).zero_()),
@@ -136,7 +136,7 @@ class RNN_ENCODER(nn.Module):
         emb = self.drop(self.encoder(captions))
         #
         # Returns: a PackedSequence object
-        cap_lens = cap_lens.data.tolist()
+        cap_lens = cap_lens.detach().tolist()
         emb = pack_padded_sequence(emb, cap_lens, batch_first=True)
         # #hidden and memory (num_layers * num_directions, batch, hidden_size):
         # tensor containing the initial hidden state for each element in batch.
@@ -167,7 +167,7 @@ class CNN_ENCODER(nn.Module):
         else:
             self.nef = 256  # define a uniform ranker
 
-        model = models.inception_v3()
+        model = models.inception_v3(init_weights=True)
         url = 'https://download.pytorch.org/models/inception_v3_google-1a9a5a14.pth'
         model.load_state_dict(model_zoo.load_url(url))
         for param in model.parameters():
@@ -201,13 +201,13 @@ class CNN_ENCODER(nn.Module):
 
     def init_trainable_weights(self):
         initrange = 0.1
-        self.emb_features.weight.data.uniform_(-initrange, initrange)
-        self.emb_cnn_code.weight.data.uniform_(-initrange, initrange)
+        self.emb_features.weight.detach().uniform_(-initrange, initrange)
+        self.emb_cnn_code.weight.detach().uniform_(-initrange, initrange)
 
     def forward(self, x):
         features = None
         # --> fixed-size input: batch x 3 x 299 x 299
-        x = nn.Upsample(size=(299, 299), mode='bilinear')(x)
+        x = nn.Upsample(size=(299, 299), mode='bilinear', align_corners=True)(x)
         # 299 x 299 x 3
         x = self.Conv2d_1a_3x3(x)
         # 149 x 149 x 32

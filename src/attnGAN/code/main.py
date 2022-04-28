@@ -29,6 +29,8 @@ def parse_args():
     parser.add_argument('--gpu', dest='gpu_id', type=int, default=-1)
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
+    parser.add_argument('--with_vqa', action='store_true')
+    parser.add_argument('--comet', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -38,15 +40,15 @@ def gen_example(wordtoix, algo):
     from nltk.tokenize import RegexpTokenizer
     filepath = '%s/example_filenames.txt' % (cfg.DATA_DIR)
     data_dic = {}
-    with open(filepath, "r") as f:
-        filenames = f.read().decode('utf8').split('\n')
+    with open(filepath, "r", encoding='utf-8') as f:
+        filenames = f.read().split('\n')
         for name in filenames:
             if len(name) == 0:
                 continue
             filepath = '%s/%s.txt' % (cfg.DATA_DIR, name)
-            with open(filepath, "r") as f:
+            with open(filepath, "r", encoding='utf-8') as f:
                 print('Load from:', name)
-                sentences = f.read().decode('utf8').split('\n')
+                sentences = f.read().split('\n')
                 # a list of indices for a sentence
                 captions = []
                 cap_lens = []
@@ -110,18 +112,20 @@ if __name__ == "__main__":
 
     now = datetime.datetime.now(dateutil.tz.tzlocal())
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
-    output_dir = '../output/%s_%s_%s' % \
-        (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
-
+    print(cfg.OUTPUT_DIR)
+    output_dir = os.path.join(cfg.OUTPUT_DIR, 'output/%s_%s_%s' % (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp))
+    if cfg.TRAIN.NET_G != '' and cfg.TRAIN.FLAG:
+        output_dir = os.path.join(cfg.OUTPUT_DIR, 'output', cfg.TRAIN.NET_G.split('/')[-3])
+    print(output_dir)
     split_dir, bshuffle = 'train', True
     if not cfg.TRAIN.FLAG:
         # bshuffle = False
-        split_dir = 'test'
+        split_dir = 'val'
 
     # Get data loader
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM - 1))
     image_transform = transforms.Compose([
-        transforms.Scale(int(imsize * 76 / 64)),
+        transforms.Resize(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
         transforms.RandomHorizontalFlip()])
     dataset = TextDataset(cfg.DATA_DIR, split_dir,
@@ -132,16 +136,25 @@ if __name__ == "__main__":
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE,
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
+    # dataloader_test=None
+    dataset_test = TextDataset(cfg.DATA_DIR, 'val', base_size=cfg.TREE.BASE_SIZE, transform=image_transform)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.TRAIN.BATCH_SIZE, drop_last=True,
+                                                  shuffle=False, num_workers=int(cfg.WORKERS))
+
     # Define models and go to train/evaluate
-    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
+    algo = trainer(cfg.DATA_DIR, output_dir, dataloader, dataset.n_words, dataset.ixtoword, dataloader_test, args.with_vqa, args.comet, cfg)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:
-        algo.train()
+        if args.comet:
+            with algo.experiment.train():
+                algo.train()
+        else:
+            algo.train()
     else:
         '''generate images from pre-extracted embeddings'''
         if cfg.B_VALIDATION:
-            algo.sampling(split_dir)  # generate images for the whole valid dataset
+            algo.sampling(output_dir)  # generate images for the whole valid dataset
         else:
             gen_example(dataset.wordtoix, algo)  # generate images for customized captions
     end_t = time.time()

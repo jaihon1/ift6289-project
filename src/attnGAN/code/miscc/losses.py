@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 
 import numpy as np
-from miscc.config import cfg
+import os
+from .config import cfg
 
 from GlobalAttention import func_attention
 
@@ -31,7 +32,7 @@ def sent_loss(cnn_code, rnn_code, labels, class_ids,
         # masks: batch_size x batch_size
         masks = torch.ByteTensor(masks)
         if cfg.CUDA:
-            masks = masks.cuda()
+            masks = masks.to('cuda:0')
 
     # --> seq_len x batch_size x nef
     if cnn_code.dim() == 2:
@@ -49,7 +50,7 @@ def sent_loss(cnn_code, rnn_code, labels, class_ids,
     # --> batch_size x batch_size
     scores0 = scores0.squeeze()
     if class_ids is not None:
-        scores0.data.masked_fill_(masks, -float('inf'))
+        scores0.detach().masked_fill_(masks.type(torch.bool), -float('inf'))
     scores1 = scores0.transpose(0, 1)
     if labels is not None:
         loss0 = nn.CrossEntropyLoss()(scores0, labels)
@@ -68,7 +69,7 @@ def words_loss(img_features, words_emb, labels,
     masks = []
     att_maps = []
     similarities = []
-    cap_lens = cap_lens.data.tolist()
+    cap_lens = cap_lens.detach().tolist()
     for i in range(batch_size):
         if class_ids is not None:
             mask = (class_ids == class_ids[i]).astype(np.uint8)
@@ -118,11 +119,11 @@ def words_loss(img_features, words_emb, labels,
         # masks: batch_size x batch_size
         masks = torch.ByteTensor(masks)
         if cfg.CUDA:
-            masks = masks.cuda()
+            masks = masks.to('cuda:0')
 
     similarities = similarities * cfg.TRAIN.SMOOTH.GAMMA3
     if class_ids is not None:
-        similarities.data.masked_fill_(masks, -float('inf'))
+        similarities.detach().masked_fill_(masks.type(torch.bool), -float('inf'))
     similarities1 = similarities.transpose(0, 1)
     if labels is not None:
         loss0 = nn.CrossEntropyLoss()(similarities, labels)
@@ -161,6 +162,30 @@ def discriminator_loss(netD, real_imgs, fake_imgs, conditions,
     return errD
 
 
+def discriminator_loss_qas(netD, real_imgs, fake_imgs, conditions,
+                           fake_labels):
+    # Forward
+    real_features = netD(real_imgs)
+    fake_features = netD(fake_imgs.detach())
+    # loss
+    cond_fake_logits = netD.COND_DNET(fake_features, conditions)
+    cond_fake_errD = nn.BCELoss()(cond_fake_logits, fake_labels)
+    #
+    batch_size = real_features.size(0)
+    cond_wrong_logits = netD.COND_DNET(real_features[:(batch_size - 1)], conditions[1:batch_size])
+    cond_wrong_errD = nn.BCELoss()(cond_wrong_logits, fake_labels[1:batch_size])
+
+    if netD.UNCOND_DNET is not None:
+
+        fake_logits = netD.UNCOND_DNET(fake_features)
+
+        fake_errD = nn.BCELoss()(fake_logits, fake_labels)
+        errD = (fake_errD + cond_fake_errD + cond_wrong_errD) / 3.
+    else:
+        errD = (cond_fake_errD + cond_wrong_errD) / 2.
+    return errD
+
+
 def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                    words_embs, sent_emb, match_labels,
                    cap_lens, class_ids):
@@ -181,7 +206,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
             g_loss = cond_errG
         errG_total += g_loss
         # err_img = errG_total.data[0]
-        logs += 'g_loss%d: %.2f ' % (i, g_loss.data[0])
+        logs += 'g_loss%d: %.2f ' % (i, g_loss.item())
 
         # Ranking loss
         if i == (numDs - 1):
@@ -202,7 +227,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
             # err_sent = err_sent + s_loss.data[0]
 
             errG_total += w_loss + s_loss
-            logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.data[0], s_loss.data[0])
+            logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.item(), s_loss.item())
     return errG_total, logs
 
 
