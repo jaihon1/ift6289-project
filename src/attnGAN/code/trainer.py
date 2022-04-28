@@ -554,54 +554,6 @@ class condGANTrainer(object):
                 acc.append(vqa_utils.batch_accuracy(out.detach(), ans_vqa.detach()).mean().item())
             mean_acc = float(sum(acc)/len(loader_images))
             print('Mean accuracy: %s' % mean_acc)
-            # # the path to save generated images
-            # s_tmp = model_dir[:model_dir.rfind('.pth')]
-            # save_dir = '%s/%s' % (s_tmp, split_dir)
-            # mkdir_p(save_dir)
-            #
-            # cnt = 0
-            #
-            # for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
-            #     for step, data in enumerate(self.data_loader, 0):
-            #         cnt += batch_size
-            #         if step % 100 == 0:
-            #             print('step: ', step)
-            #         # if step > 50:
-            #         #     break
-            #
-            #         imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
-            #
-            #         hidden = text_encoder.init_hidden(batch_size)
-            #         # words_embs: batch_size x nef x seq_len
-            #         # sent_emb: batch_size x nef
-            #         words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-            #         words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-            #         mask = (captions == 0)
-            #         num_words = words_embs.size(2)
-            #         if mask.size(1) > num_words:
-            #             mask = mask[:, :num_words]
-            #
-            #         #######################################################
-            #         # (2) Generate fake images
-            #         ######################################################
-            #         noise.detach().normal_(0, 1)
-            #         fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
-            #         for j in range(batch_size):
-            #             s_tmp = '%s/single/%s' % (save_dir, keys[j])
-            #             folder = s_tmp[:s_tmp.rfind('/')]
-            #             if not os.path.isdir(folder):
-            #                 print('Make a new folder: ', folder)
-            #                 mkdir_p(folder)
-            #             k = -1
-            #             # for k in range(len(fake_imgs)):
-            #             im = fake_imgs[k][j].detach().cpu().numpy()
-            #             # [-1, 1] --> [0, 255]
-            #             im = (im + 1.0) * 127.5
-            #             im = im.astype(np.uint8)
-            #             im = np.transpose(im, (1, 2, 0))
-            #             im = Image.fromarray(im)
-            #             fullpath = '%s_s%d.png' % (s_tmp, k)
-            #             im.save(fullpath)
 
     def evaluate(self, netG, text_encoder, epoch):
         netG.eval()
